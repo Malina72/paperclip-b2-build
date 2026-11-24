@@ -1,4 +1,4 @@
-name: B2 preflight and one conditional build
+name: B2 single isolated build
 on:
   workflow_dispatch:
 permissions:
@@ -15,6 +15,8 @@ jobs:
       packages: write
     env:
       REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+      PILOT_BUILDER: paperclip-b2
+      DOCKER_CONFIG: ${{ runner.temp }}/paperclip-docker-config
       GIT_TERMINAL_PROMPT: '0'
     steps:
       - name: Fetch exact public recipe commit without persisted credentials
@@ -27,13 +29,29 @@ jobs:
           git fetch --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: One free resource and attestation preflight
+      - name: Record original daemon and system security baseline
+        run: python3 scripts/isolation_guard.py before
+      - name: Set up one isolated temporary Docker daemon
+        uses: docker/setup-docker-action@3f1ab1ab0e29231562e4db4ca600c1a49653bac6
+        with:
+          version: v29.10.0
+          context: paperclip-b2
+          runtime-basedir: ${{ runner.temp }}/paperclip-docker
+          rootless: false
+          daemon-config: |
+            {"features":{"containerd-snapshotter":true}}
+      - name: Verify daemon and system isolation
+        run: python3 scripts/isolation_guard.py before-build
+      - name: Verify isolated builder resource and OCI guards before one full build
         id: preflight
         run: python3 scripts/preflight.py
       - name: One conditional Linux amd64 build and local image inspection
         id: build
         if: steps.preflight.outputs.eligible == 'true'
         run: python3 scripts/build_once.py
+      - name: Recheck isolation after build
+        if: always() && steps.preflight.outputs.eligible == 'true'
+        run: python3 scripts/isolation_guard.py after-build
       - name: Publish only the verified OCI image and its attestations
         if: steps.build.outputs.publish_eligible == 'true'
         env:
@@ -44,7 +62,7 @@ jobs:
         shell: bash
         run: |
           python3 - <<'PY'
-          import pathlib, os, json
+          import pathlib, os, json, gzip, base64, hashlib, re
           root=pathlib.Path(os.environ['RUNNER_TEMP'])/'paperclip-b2'
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary:
               for name in ['build-result.json','image-evidence/image-verification.json']:
@@ -53,6 +71,23 @@ jobs:
                       text=p.read_text()
                       print(name,text)
                       summary.write('\n## '+name+'\n```json\n'+text+'\n```\n')
+              # Retain data-only reports in ordinary job logs; no paid artifact storage.
+              for name in ['preflight.json','isolation-before-build.json','isolation-after-build.json','image-evidence/attestations.json','image-evidence/os-dpkg-status.txt','image-evidence/native-inventory.json','image-evidence/package-inventory.json','image-evidence/npm-advisories.json','image-evidence/image-verification.json']:
+                  p=root/name
+                  if not p.exists():
+                      continue
+                  raw=p.read_bytes()
+                  if re.search(rb'gh[pousr]_[A-Za-z0-9]{30,}|sk-proj-[A-Za-z0-9_-]{48,}|-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[A-Za-z0-9+/=\r\n]{80,}',raw):
+                      print('REPORT_WITHHELD_SECRET_PATTERN',name)
+                      continue
+                  encoded=base64.b64encode(gzip.compress(raw,mtime=0)).decode()
+                  if len(encoded)>16000000:
+                      print('REPORT_TOO_LARGE',name)
+                      continue
+                  print('B2_REPORT_BEGIN',name,hashlib.sha256(raw).hexdigest())
+                  for i in range(0,len(encoded),32000):
+                      print('B2_REPORT_DATA',encoded[i:i+32000])
+                  print('B2_REPORT_END',name)
               if not (root/'build-result.json').exists():
                   print('Full build not attempted; see preflight stop reasons. No image publication.')
                   summary.write('\nFull build not attempted. No image publication.\n')

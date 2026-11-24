@@ -31,5 +31,13 @@
     "version": "v0.11.7",
     "url": "https://github.com/regclient/regclient/releases/download/v0.11.7/regctl-linux-amd64",
     "sha256": "3737fbbdd791e04e7a831640b681f3397a376498e80e2ad9b1b2d27296f239bc"
+  },
+  "isolated_ci_docker": {
+    "action": "docker/setup-docker-action",
+    "action_commit": "3f1ab1ab0e29231562e4db4ca600c1a49653bac6",
+    "engine_version": "v29.10.0",
+    "context": "paperclip-b2",
+    "rootless": false,
+    "runtime_scope": "job-local daemon/config/data/socket, cleanup by official action; no existing daemon reconfiguration"
   }
 }

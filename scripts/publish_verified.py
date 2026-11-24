@@ -1,5 +1,5 @@
 import pathlib,os,json,urllib.request,hashlib,subprocess
-R=pathlib.Path(os.environ['RUNNER_TEMP'])/'paperclip-b2';pins=json.loads(pathlib.Path('pins.json').read_text());proof=json.loads((R/'image-evidence/image-verification.json').read_text());assert all(proof[k] for k in ['composition_pass','secrets_scan_pass','sbom_present','provenance_present']);tool=R/'regctl'
+R=pathlib.Path(os.environ['RUNNER_TEMP'])/'paperclip-b2';pins=json.loads(pathlib.Path('pins.json').read_text());proof=json.loads((R/'image-evidence/image-verification.json').read_text());assert all(proof[k] for k in ['composition_pass','secrets_scan_pass','sbom_present','provenance_present','security_review_pass']);tool=R/'regctl'
 with urllib.request.urlopen(pins['regctl']['url'],timeout=30) as f:tool.write_bytes(f.read())
 assert hashlib.file_digest(tool.open('rb'),'sha256').hexdigest()==pins['regctl']['sha256'];tool.chmod(0o700)
 env=os.environ.copy();env['REGCTL_CONFIG']=str(R/'registry-config.json');token=env.pop('GHCR_TOKEN');assert token
