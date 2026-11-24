@@ -34,13 +34,13 @@ if not reasons:
  code,out,err=cmd(args,timeout=180);report['attestation_probe_exit']=code
  if code!=0:reasons.append('bounded_oci_attestation_probe_failed');report['probe_error_class']='Exporter/SBOM/provenance capability failure; no security fallback'
  else:
-  predicates=[]
+  predicates=[];subjects=[]
   for p in (R/'probe-oci/blobs/sha256').glob('*'):
    if p.stat().st_size>10*1024*1024:continue
    try:x=json.loads(p.read_text())
    except (ValueError,UnicodeDecodeError):continue
-   if isinstance(x,dict) and x.get('predicateType'):predicates.append(x['predicateType'])
-  report['attestation_predicates']=predicates
+   if isinstance(x,dict) and x.get('predicateType'):predicates.append(x['predicateType']);subjects.append({'predicateType':x['predicateType'],'subject':x.get('subject')})
+  report['attestation_predicates']=predicates;report['attestation_subjects']=subjects
   if not any('spdx' in x for x in predicates) or not any('slsa' in x for x in predicates):reasons.append('attestations_not_present_in_export')
 report['eligible']=not reasons;report['stop_reasons']=reasons;(R/'preflight.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('eligible='+str(report['eligible']).lower()+'\n')

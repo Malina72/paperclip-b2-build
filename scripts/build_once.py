@@ -1,5 +1,5 @@
 """At most one full build. Export locally and inspect before optional registry copy."""
-import os,sys,pathlib,subprocess,json,hashlib,urllib.request,tarfile,shutil,time,signal
+import os,sys,pathlib,subprocess,json,hashlib,urllib.request,tarfile,shutil,time,signal,threading,atexit
 R=pathlib.Path(os.environ['RUNNER_TEMP'])/'paperclip-b2';pins=json.loads(pathlib.Path('pins.json').read_text());report={'full_build_attempts':0,'published':False,'application_started':False};source=R/'source';source.mkdir();archive=R/'upstream.tar.gz'
 def fetch(url,path,sha):
  with urllib.request.urlopen(url,timeout=45) as f,path.open('wb') as out:shutil.copyfileobj(f,out)
@@ -18,6 +18,14 @@ d=source/'.pilot-build';d.mkdir();shutil.copy2('docker/Dockerfile',d/'Dockerfile
 # Source identity records immutable upstream plus exact recipe/patch input revisions.
 report['recipe_commit']=os.environ['GITHUB_SHA'];report['upstream_commit']=pins['upstream_commit'];report['patch_sha256']=pins['patch_sha256'];oci=R/'image-oci';e=R/'image-evidence';e.mkdir();(R/'build-result.json').write_text(json.dumps(report,indent=2))
 args=['docker','buildx','build','--builder',os.environ.get('PILOT_BUILDER','default'),'--platform','linux/amd64','--target','production','--file','.pilot-build/Dockerfile','--build-arg','PAPERCLIP_BUILD_COMMIT='+os.environ['GITHUB_SHA'],'--build-arg','PAPERCLIP_BUILD_VERSION='+pins['version'],'--label','org.opencontainers.image.revision='+os.environ['GITHUB_SHA'],'--label','io.paperclip.upstream.revision='+pins['upstream_commit'],'--label','io.paperclip.patch.sha256='+pins['patch_sha256'],'--provenance=mode=max','--sbom=generator='+pins['sbom_generator'],'--metadata-file',str(e/'build-metadata.json'),'--output',f'type=oci,dest={oci},tar=false,compression=gzip','.']
+samples=[];stop_monitor=threading.Event()
+def resource_sample():
+ while not stop_monitor.is_set():
+  mem={x.split(':',1)[0]:int(x.split()[1])*1024 for x in pathlib.Path('/proc/meminfo').read_text().splitlines() if len(x.split())>=3}
+  samples.append({'time':time.time(),'free_disk_bytes':shutil.disk_usage(R).free,'available_ram_bytes':mem['MemAvailable'],'load1':os.getloadavg()[0]})
+  (R/'resource-samples.json').write_text(json.dumps(samples));stop_monitor.wait(5)
+threading.Thread(target=resource_sample,daemon=True).start();atexit.register(stop_monitor.set)
+
 # Test only the OS/tooling stage before compiling application sources. No app runs.
 baseargs=['docker','buildx','build','--builder',os.environ.get('PILOT_BUILDER','default'),'--platform','linux/amd64','--target','base','--file','.pilot-build/Dockerfile','--load','--tag','paperclip-b2-base-check:local','.']
 report['base_build_exit']=subprocess.run(baseargs,cwd=source,timeout=1200).returncode

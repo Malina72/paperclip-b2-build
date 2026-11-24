@@ -1,5 +1,5 @@
 """Read a local OCI layout as data. Never extract executable files or start an image."""
-import sys,pathlib,json,hashlib,tarfile,posixpath,re,gzip,struct,urllib.request
+import sys,pathlib,json,hashlib,tarfile,posixpath,re,gzip,struct,urllib.request,subprocess,os,shutil
 root=pathlib.Path(sys.argv[1]);output=pathlib.Path(sys.argv[2]);output.mkdir(exist_ok=True);pins=json.loads(pathlib.Path('pins.json').read_text());seen=set();manifests=[];predicates=[]
 def blob(desc):
  alg,h=desc['digest'].split(':',1);assert alg=='sha256';p=root/'blobs'/alg/h;assert p.is_file();assert p.stat().st_size==desc['size'];assert hashlib.file_digest(p.open('rb'),'sha256').hexdigest()==h;return p
@@ -19,8 +19,10 @@ for d in index['manifests']:visit(d)
 assert len(manifests)==1,'Expected one runnable platform';desc,manifest=manifests[0];cfg=json.loads(blob(manifest['config']).read_text());assert cfg['architecture']=='amd64' and cfg['os']=='linux';config=cfg['config'];assert config.get('User')=='10001:10001';assert config.get('Cmd')==['node','server/dist-runtime/index.mjs'];assert config.get('Entrypoint')==['/usr/bin/tini','-s','--','docker-entrypoint.sh']
 assert any('spdx' in x.get('predicateType','') for x in predicates),'SBOM missing';assert any('slsa' in x.get('predicateType','') for x in predicates),'provenance missing'
 assert any('spdx' in a.get('predicateType','') and a.get('predicate',{}).get('packages') for a in predicates),'SBOM package inventory empty'
-for a in predicates:
- assert any(s.get('digest',{}).get('sha256')==desc['digest'].split(':')[1] for s in a.get('subject',[])),'Attestation subject mismatch'
+# Preserve evidence even when a binding check fails; publication stays blocked.
+(output/'attestations.json').write_text(json.dumps(predicates,indent=2))
+attestation_binding_pass=all(any(s.get('digest',{}).get('sha256')==desc['digest'].split(':')[1] for s in a.get('subject',[])) for a in predicates)
+print('ATTESTATION_BINDINGS',json.dumps({'runtime':desc['digest'],'subjects':[{'predicateType':a.get('predicateType'),'subject':a.get('subject')} for a in predicates],'pass':attestation_binding_pass}))
 packages={};links={};texts={};names=set();headers={};flags=[];uncompressed=0
 patterns=[('private_key',re.compile(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[A-Za-z0-9+/=\r\n]{80,}')),('github_token',re.compile(rb'gh[pousr]_[A-Za-z0-9]{30,}')),('openai_project_key',re.compile(rb'sk-proj-[A-Za-z0-9_-]{48,}'))]
 for layer in manifest['layers']:
@@ -88,5 +90,18 @@ for p in packages.values():
 req=urllib.request.Request('https://registry.npmjs.org/-/npm/v1/security/advisories/bulk',data=json.dumps({k:sorted(v) for k,v in versions.items()}).encode(),headers={'Content-Type':'application/json'})
 with urllib.request.urlopen(req,timeout=30) as f:advisories=json.load(f)
 (output/'physical-package-manifests.json').write_text(json.dumps({'packages':packages,'links':links},indent=2));(output/'npm-advisories.json').write_text(json.dumps(advisories,indent=2));(output/'os-dpkg-status.txt').write_text(status);(output/'native-inventory.json').write_text(json.dumps(native,indent=2));(output/'package-inventory.json').write_text(json.dumps({k:sorted(v) for k,v in versions.items()},indent=2));(output/'attestations.json').write_text(json.dumps(predicates,indent=2))
-result={'composition_pass':True,'security_review_pass':False,'secrets_scan_pass':not flags,'secret_flags':flags,'local_oci_bytes':sum(p.stat().st_size for p in root.rglob('*') if p.is_file()),'runtime_layers_compressed_bytes':sum(x['size'] for x in manifest['layers']),'sum_layer_payload_bytes_not_deduplicated':uncompressed,'runtime_manifest_digest':desc['digest'],'root_index_sha256':hashlib.sha256((root/'index.json').read_bytes()).hexdigest(),'actual_runtime_versions':actual,'openssh':pins['openssh_client'],'platform':'linux/amd64','sbom_present':True,'provenance_present':True,'identity_signature_verified':False,'application_started':False,'remaining_risks':['OS/native CVE triage beyond selected OpenSSH backport pending','Full runtime advisory reachability and configuration guards pending','No Linux dynamic application/native smoke test; no application launched']}
-(output/'image-verification.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2));sys.exit(0 if not flags else 3)
+# Official pinned scanner: data-only analysis of this local OCI layout, no app execution.
+scanner=pins['trivy'];toolroot=output.parent/'scanner-tools';toolroot.mkdir(exist_ok=True);archive=toolroot/'trivy.tar.gz'
+with urllib.request.urlopen(scanner['url'],timeout=60) as src,archive.open('wb') as dst:shutil.copyfileobj(src,dst)
+assert hashlib.file_digest(archive.open('rb'),'sha256').hexdigest()==scanner['sha256']
+with tarfile.open(archive,'r:gz') as tf:
+ member=tf.getmember('trivy');assert member.isfile() and member.size<200*1024*1024
+ with tf.extractfile(member) as src,(toolroot/'trivy').open('wb') as dst:shutil.copyfileobj(src,dst)
+tool=toolroot/'trivy';tool.chmod(0o700);archive.unlink();env=os.environ.copy();env['TRIVY_DISABLE_TELEMETRY']='true'
+scan=subprocess.run([str(tool),'image','--input',str(root)+'@'+desc['digest'],'--cache-dir',str(toolroot/'cache'),'--scanners','vuln','--severity','HIGH,CRITICAL','--format','json','--output',str(output/'trivy-high-critical.json'),'--timeout','15m','--parallel','2','--skip-java-db-update','--no-progress'],env=env,timeout=960)
+scanproof={'version':scanner['version'],'binary_archive_sha256':scanner['sha256'],'exit':scan.returncode}
+metadata=toolroot/'cache/db/metadata.json'
+if metadata.exists():scanproof['database_metadata']=json.loads(metadata.read_text())
+(output/'trivy-scan-proof.json').write_text(json.dumps(scanproof,indent=2))
+result={'composition_pass':True,'attestation_binding_pass':attestation_binding_pass,'scanner_exit':scan.returncode,'security_review_pass':False,'secrets_scan_pass':not flags,'secret_flags':flags,'local_oci_bytes':sum(p.stat().st_size for p in root.rglob('*') if p.is_file()),'runtime_layers_compressed_bytes':sum(x['size'] for x in manifest['layers']),'sum_layer_payload_bytes_not_deduplicated':uncompressed,'runtime_manifest_digest':desc['digest'],'root_index_sha256':hashlib.sha256((root/'index.json').read_bytes()).hexdigest(),'actual_runtime_versions':actual,'openssh':pins['openssh_client'],'platform':'linux/amd64','sbom_present':True,'provenance_present':True,'identity_signature_verified':False,'application_started':False,'remaining_risks':['OS/native CVE triage beyond selected OpenSSH backport pending','Full runtime advisory reachability and configuration guards pending','No Linux dynamic application/native smoke test; no application launched']}
+(output/'image-verification.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2));sys.exit(0 if not flags and attestation_binding_pass and scan.returncode==0 else 3)
