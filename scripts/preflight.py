@@ -1,13 +1,18 @@
 """Bounded inspection of the disposable hosted runner, no application execution."""
-import os,json,subprocess,pathlib,shutil,platform,time
+import os,json,subprocess,pathlib,shutil,platform,time,re
 GIB=2**30;R=pathlib.Path(os.environ['RUNNER_TEMP'])/'paperclip-b2';R.mkdir(exist_ok=True)
 pins=json.loads(pathlib.Path('pins.json').read_text());report={'runner':'ubuntu-24.04','architecture':platform.machine(),'cpu_count':os.cpu_count(),'advertised_disk_gb':14,'not_a_guarantee_of_35_gib':True,'extra_spending_usd':0}
 def cmd(args,timeout=20):
  p=subprocess.run(args,capture_output=True,text=True,timeout=timeout);return p.returncode,p.stdout,p.stderr
+def parse_builder_inspect(text):
+ driver=re.search(r'^Driver:\s*(\S+)',text,re.M)
+ versions=re.findall(r'^BuildKit version:\s*(\S+)',text,re.M)
+ return (driver.group(1) if driver else None,versions)
+
 def disk():
  path='/var/lib/docker' if pathlib.Path('/var/lib/docker').exists() else '/';u=shutil.disk_usage(path);return {'total_bytes':u.total,'free_bytes':u.free}
 mem=dict((line.split(':',1)[0],int(line.split()[1])*1024) for line in pathlib.Path('/proc/meminfo').read_text().splitlines() if len(line.split())>=3)
-report['ram_bytes']=mem['MemTotal'];report['available_ram_bytes']=mem['MemAvailable'];report['disk_before']=disk();code,out,err=cmd(['docker','version','--format','{{json .Server}}']);server=json.loads(out) if code==0 else {};report['docker']={k:server.get(k) for k in ['Version','ApiVersion','Os','Arch','KernelVersion']};code,out,err=cmd(['docker','buildx','version']);report['buildx']=out.strip();code,out,err=cmd(['docker','buildx','inspect','default','--format','{{json .}}']);builder=json.loads(out) if code==0 else {};report['driver']=builder.get('Driver');report['buildkit_versions']=[n.get('Buildkit',n.get('BuildKit')) for n in builder.get('Nodes',[])];code,out,err=cmd(['docker','info','--format','{{json .DriverStatus}}']);report['containerd_image_store']=code==0 and 'io.containerd.snapshotter' in out
+report['ram_bytes']=mem['MemTotal'];report['available_ram_bytes']=mem['MemAvailable'];report['disk_before']=disk();code,out,err=cmd(['docker','version','--format','{{json .Server}}']);server=json.loads(out) if code==0 else {};report['docker']={k:server.get(k) for k in ['Version','ApiVersion','Os','Arch','KernelVersion']};code,out,err=cmd(['docker','buildx','version']);report['buildx']=out.strip();code,out,err=cmd(['docker','buildx','inspect','default']);report['builder_probe_exit']=code;report['driver'],report['buildkit_versions']=parse_builder_inspect(out) if code==0 else (None,[]);code,out,err=cmd(['docker','info','--format','{{json .DriverStatus}}']);report['containerd_image_store']=code==0 and 'io.containerd.snapshotter' in out
 # Conservative peak envelope, not a measured result or a minimum final-image size.
 budget={'source_context':0.4,'os_node_layers_and_packages':2,'rust_toolchain_and_crate_cache':5,'js_store_and_dependency_snapshots':8,'rust_target_cache':10,'build_output_snapshots':6,'oci_export_and_streaming_inspection':5,'sbom_generator':1,'reserve':5};report['disk_budget_gib']=budget;report['estimated_peak_gib']=sum(budget.values());report['required_free_gib']=45;report['cleanup']=[]
 # Only preinstalled SDKs on this fresh hosted VM; no Docker prune, security or daemon changes.

@@ -9,3 +9,9 @@ The workflow performs one resource/attestation preflight and at most one full bu
 The repository and image are experimental build candidates, not a security certification or deployment. Built-in provider SDK modules remain; absence of global CLIs is not a universal provider deny gate. Remaining advisories require final-image analysis before a separately authorized runtime test.
 
 Upstream: https://github.com/paperclipai/paperclip. Upstream code is downloaded from its official immutable archive; MIT license and attribution are retained. This repository contains no account credentials or deployment data.
+
+## First bounded preflight
+
+The single initial hosted job measured4CPU, about15.3GiB RAM and88.4GiB free disk. No SDK cleanup was needed. The estimated peak envelope is42.4GiB with a45GiB admission gate; this is a planning estimate, not measured build usage.
+
+No full build or registry publication occurred: the existing Docker containerd image store was disabled. The recipe intentionally does not reconfigure the Docker daemon or use a privileged builder. The first diagnostic also used an unsupported `buildx inspect --format` option; that parser is corrected here without another job, and its null result is not evidence that a default builder was absent. Local OCI/SBOM/provenance capability remains unqualified until a separately approved CI configuration change/test.
