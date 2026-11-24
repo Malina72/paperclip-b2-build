@@ -1,0 +1,35 @@
+{
+  "upstream_commit": "c0f132898d2a2677312d8c72096187b27a3d9a38",
+  "version": "2026.1117.0-owner.b2",
+  "platform": "linux/amd64",
+  "ubuntu_base_digest": "sha256:9a04f13b3f80ef056361e30868593b1cfd2279fe19e4081cb93a90bf56819d6a",
+  "node_source_digest": "sha256:6709bf854652e2d21610e952df82ff9c0b98cc7315acdce75236bbb66bd8aa06",
+  "node_version": "24.22.3",
+  "pnpm_version": "9.15.4",
+  "pnpm_archive_sha256": "9bee59c7313a216722c079c1e22160dea7f88df4e0c3450b1d7b01b882336c6a",
+  "pnpm_tarball_url": "https://registry.npmjs.org/pnpm/-/pnpm-9.15.4.tgz",
+  "snapshot": "20261124T000000Z",
+  "openssh_client": "1:9.6p1-3ubuntu13.20",
+  "ssh_fixed_notice": "https://ubuntu.com/security/notices/USN-8533-1",
+  "rust": "1.97.1",
+  "cargo_chef": "0.1.73",
+  "sbom_generator": "docker/buildkit-syft-scanner@sha256:873a7458c3c8ac8e32c7b796c10e1600b07b963d2aa000a72a2d97aaaa2d6315",
+  "archive_url": "https://codeload.github.com/paperclipai/paperclip/tar.gz/c0f132898d2a2677312d8c72096187b27a3d9a38",
+  "archive_sha256": "478429e7fa1a904cf09b8b84c1294f2e44b4585551eebc4bd05414a8d109e215",
+  "source_hashes": {
+    "package.json": "4cb4b78c05d7d8f9e82f59574e2a380b77f4e1b1c436e22c7f31b6eefbe55926",
+    "pnpm-workspace.yaml": "d44465949a3bba9bdde71c09b9faa89c9abf813b7313a64d5990bb6edd4ce994",
+    "pnpm-lock.yaml": "3eb4998920a88e1d51b41030ee9ebe416b30265e6d3b15b7ffb049457c43aadb",
+    "server/package.json": "17704c48600ad418d1684a8f2b4749d75ca9ecc4e2d7446aac8a812d1e921cd1",
+    "packages/paperclip-runner/runner/Cargo.lock": "838ba47fc53c69c0bdeac65440152ad4e469b6b0b3d3e184287f30c25375f136",
+    "packages/paperclip-runner/rust-toolchain.toml": "e4c6d27e48d71df0ae66d84f3bc2d5df8cbf5c3cbb3225475a7852d94361a0c5"
+  },
+  "patch_sha256": "a36c252a81be5ea42d4128307b4ed64135a514ebc45eb0508463b59808e24f80",
+  "dockerfile_sha256": "3b57c11a666d3f00e972595a047c2f4e4ec669e2916d4d04a6f7cdb2b3c2c413",
+  "dockerignore_sha256": "2c089f19ef1a8302de25cca37ef9fc572c94717ee1c1dd7eb05b05ac4aadd263",
+  "regctl": {
+    "version": "v0.11.7",
+    "url": "https://github.com/regclient/regclient/releases/download/v0.11.7/regctl-linux-amd64",
+    "sha256": "3737fbbdd791e04e7a831640b681f3397a376498e80e2ad9b1b2d27296f239bc"
+  }
+}

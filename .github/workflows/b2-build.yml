@@ -1,0 +1,59 @@
+name: B2 preflight and one conditional build
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: paperclip-b2-manual-build
+  cancel-in-progress: false
+jobs:
+  candidate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 135
+    permissions:
+      contents: read
+      packages: write
+    env:
+      REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+      GIT_TERMINAL_PROMPT: '0'
+    steps:
+      - name: Fetch exact public recipe commit without persisted credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$REPOSITORY_VISIBILITY" = public
+          git init .
+          git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: One free resource and attestation preflight
+        id: preflight
+        run: python3 scripts/preflight.py
+      - name: One conditional Linux amd64 build and local image inspection
+        id: build
+        if: steps.preflight.outputs.eligible == 'true'
+        run: python3 scripts/build_once.py
+      - name: Publish only the verified OCI image and its attestations
+        if: steps.build.outputs.publish_eligible == 'true'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/publish_verified.py
+      - name: Final report without paid artifact storage
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib, os, json
+          root=pathlib.Path(os.environ['RUNNER_TEMP'])/'paperclip-b2'
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary:
+              for name in ['build-result.json','image-evidence/image-verification.json']:
+                  p=root/name
+                  if p.exists():
+                      text=p.read_text()
+                      print(name,text)
+                      summary.write('\n## '+name+'\n```json\n'+text+'\n```\n')
+              if not (root/'build-result.json').exists():
+                  print('Full build not attempted; see preflight stop reasons. No image publication.')
+                  summary.write('\nFull build not attempted. No image publication.\n')
+          PY
