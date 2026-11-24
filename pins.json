@@ -25,7 +25,7 @@
     "packages/paperclip-runner/rust-toolchain.toml": "e4c6d27e48d71df0ae66d84f3bc2d5df8cbf5c3cbb3225475a7852d94361a0c5"
   },
   "patch_sha256": "a36c252a81be5ea42d4128307b4ed64135a514ebc45eb0508463b59808e24f80",
-  "dockerfile_sha256": "3b57c11a666d3f00e972595a047c2f4e4ec669e2916d4d04a6f7cdb2b3c2c413",
+  "dockerfile_sha256": "2cf1645e6f9e59d2d8efaf9956f287970a9f3992e370c69f65dbb671963492cc",
   "dockerignore_sha256": "2c089f19ef1a8302de25cca37ef9fc572c94717ee1c1dd7eb05b05ac4aadd263",
   "regctl": {
     "version": "v0.11.7",

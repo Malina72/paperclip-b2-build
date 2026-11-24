@@ -72,7 +72,7 @@ jobs:
                       print(name,text)
                       summary.write('\n## '+name+'\n```json\n'+text+'\n```\n')
               # Retain data-only reports in ordinary job logs; no paid artifact storage.
-              for name in ['preflight.json','isolation-before-build.json','isolation-after-build.json','image-evidence/attestations.json','image-evidence/os-dpkg-status.txt','image-evidence/native-inventory.json','image-evidence/package-inventory.json','image-evidence/npm-advisories.json','image-evidence/image-verification.json']:
+              for name in ['preflight.json','isolation-before-build.json','isolation-after-build.json','image-evidence/attestations.json','image-evidence/os-dpkg-status.txt','image-evidence/native-inventory.json','image-evidence/package-inventory.json','image-evidence/physical-package-manifests.json','image-evidence/npm-advisories.json','image-evidence/image-verification.json']:
                   p=root/name
                   if not p.exists():
                       continue

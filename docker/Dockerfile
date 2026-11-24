@@ -1,14 +1,17 @@
 # syntax=docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d
 # Node binary is taken from an immutable Docker Official Image; no distro package Node.
 FROM node:24.22.3-trixie-slim@sha256:6709bf854652e2d21610e952df82ff9c0b98cc7315acdce75236bbb66bd8aa06 AS node-runtime
+# Bootstrap trust exclusively from the pinned Node release's Mozilla roots.
+RUN node -e 'const fs=require("node:fs"),tls=require("node:tls"),c=require("node:crypto");if(process.version!=="v24.22.3"||tls.rootCertificates.length<100)throw Error("unexpected trust source");const pem=tls.rootCertificates.join("\n")+"\n";for(const cert of tls.rootCertificates)new c.X509Certificate(cert);fs.writeFileSync("/tmp/bootstrap-ca.crt",pem);console.log(JSON.stringify({source:"tls.rootCertificates",node:process.version,count:tls.rootCertificates.length,sha256:c.createHash("sha256").update(pem).digest("hex")}))'
 FROM ubuntu:24.04@sha256:9a04f13b3f80ef056361e30868593b1cfd2279fe19e4081cb93a90bf56819d6a AS base
 ARG USER_UID=10001
 ARG USER_GID=10001
 ENV DEBIAN_FRONTEND=noninteractive
 COPY --from=node-runtime /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-runtime /tmp/bootstrap-ca.crt /etc/ssl/certs/ca-certificates.crt
 # Native Ubuntu snapshot mode retains APT signature checks. Never use trusted=yes,
 # AllowInsecureRepositories, Check-Valid-Until=false, or mixed Debian/Ubuntu .deb files.
-RUN apt-get update --snapshot 20261124T000000Z \
+RUN apt-get update --error-on=any --snapshot 20261124T000000Z \
   && apt-get upgrade -y --no-install-recommends --snapshot 20261124T000000Z \
   && apt-get install -y --no-install-recommends --snapshot 20261124T000000Z \
      ca-certificates gosu curl gh git wget ripgrep python3 tini libstdc++6 jq \
@@ -81,7 +84,7 @@ WORKDIR /app
 # The C toolchain is explicit: apt's cargo used to pull gcc in as a
 # dependency, and rustup does not — without it every build script dies on
 # "linker `cc` not found".
-RUN apt-get update --snapshot 20261124T000000Z \
+RUN apt-get update --error-on=any --snapshot 20261124T000000Z \
   && apt-get install -y --no-install-recommends --snapshot 20261124T000000Z gcc libc6-dev pkg-config \
   && rm -rf /var/lib/apt/lists/*
 ENV RUSTUP_HOME=/usr/local/rustup \
