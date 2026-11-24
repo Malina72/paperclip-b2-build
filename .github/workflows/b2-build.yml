@@ -1,4 +1,4 @@
-name: B2 single isolated build
+name: B3 single isolated build
 on:
   workflow_dispatch:
 permissions:
@@ -29,6 +29,8 @@ jobs:
           git fetch --depth=1 origin "$GITHUB_SHA"
           git checkout --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify synthetic fail-closed image inspection gates
+        run: python3 tests/inspect_oci_test.py
       - name: Record original daemon and system security baseline
         run: python3 scripts/isolation_guard.py before
       - name: Set up one isolated temporary Docker daemon
@@ -65,14 +67,14 @@ jobs:
           import pathlib, os, json, gzip, base64, hashlib, re
           root=pathlib.Path(os.environ['RUNNER_TEMP'])/'paperclip-b2'
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as summary:
-              for name in ['build-result.json','image-evidence/image-verification.json']:
+              for name in ['build-result.json','image-evidence/image-verification.json','image-evidence/security-review-result.json','image-evidence/component-results.json','image-evidence/component-stdout.log','image-evidence/component-stderr.log','image-evidence/image-load.log']:
                   p=root/name
                   if p.exists():
                       text=p.read_text()
                       print(name,text)
                       summary.write('\n## '+name+'\n```json\n'+text+'\n```\n')
               # Retain data-only reports in ordinary job logs; no paid artifact storage.
-              for name in ['build-result.json','resource-samples.json','preflight.json','isolation-before-build.json','isolation-after-build.json','image-evidence/attestations.json','image-evidence/os-dpkg-status.txt','image-evidence/native-inventory.json','image-evidence/package-inventory.json','image-evidence/physical-package-manifests.json','image-evidence/npm-advisories.json','image-evidence/trivy-high-critical.json','image-evidence/trivy-scan-proof.json','image-evidence/image-verification.json']:
+              for name in ['rust-qualification/results.json','rust-qualification/production-tree.txt','inspector-unit-tests.json','build-result.json','resource-samples.json','preflight.json','isolation-before-build.json','isolation-after-build.json','image-evidence/attestations.json','image-evidence/os-dpkg-status.txt','image-evidence/native-inventory.json','image-evidence/package-inventory.json','image-evidence/physical-package-manifests.json','image-evidence/npm-advisories.json','image-evidence/trivy-high-critical.json','image-evidence/trivy-scan-proof.json','image-evidence/rust-audit.json','image-evidence/image-verification.json','image-evidence/security-review-result.json','image-evidence/component-results.json','image-evidence/component-stdout.log','image-evidence/component-stderr.log','image-evidence/image-load.log']:
                   p=root/name
                   if not p.exists():
                       continue

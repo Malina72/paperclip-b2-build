@@ -14,9 +14,9 @@ def disk():
 mem=dict((line.split(':',1)[0],int(line.split()[1])*1024) for line in pathlib.Path('/proc/meminfo').read_text().splitlines() if len(line.split())>=3)
 report['ram_bytes']=mem['MemTotal'];report['available_ram_bytes']=mem['MemAvailable'];report['disk_before']=disk();code,out,err=cmd(['docker','version','--format','{{json .Server}}']);server=json.loads(out) if code==0 else {};report['docker']={k:server.get(k) for k in ['Version','ApiVersion','Os','Arch','KernelVersion']};code,out,err=cmd(['docker','buildx','version']);report['buildx']=out.strip();code,out,err=cmd(['docker','buildx','inspect',os.environ.get('PILOT_BUILDER','default')]);report['builder_probe_exit']=code;report['driver'],report['buildkit_versions']=parse_builder_inspect(out) if code==0 else (None,[]);code,out,err=cmd(['docker','info','--format','{{json .DriverStatus}}']);report['containerd_image_store']=code==0 and 'io.containerd.snapshotter' in out
 # Conservative peak envelope, not a measured result or a minimum final-image size.
-budget={'source_context':0.4,'os_node_layers_and_packages':2,'rust_toolchain_and_crate_cache':5,'js_store_and_dependency_snapshots':8,'rust_target_cache':10,'build_output_snapshots':6,'oci_export_and_streaming_inspection':5,'sbom_generator':1,'reserve':5};report['disk_budget_gib']=budget;report['estimated_peak_gib']=sum(budget.values());report['required_free_gib']=45;report['cleanup']=[]
+budget={'source_context':0.4,'os_node_layers_and_packages':2,'rust_toolchain_and_crate_cache':5,'js_store_and_dependency_snapshots':8,'rust_target_cache':10,'build_output_snapshots':6,'oci_export_and_streaming_inspection':5,'sbom_generator':1,'reserve':5,'native_tls_qualification':3};report['disk_budget_gib']=budget;report['estimated_peak_gib']=sum(budget.values());report['required_free_gib']=48;report['cleanup']=[]
 # Only preinstalled SDKs on this fresh hosted VM; no Docker prune, security or daemon changes.
-if report['disk_before']['free_bytes']<45*GIB and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted':
+if report['disk_before']['free_bytes']<48*GIB and os.environ.get('RUNNER_ENVIRONMENT')=='github-hosted':
  for name in ['/usr/local/lib/android','/usr/share/dotnet','/opt/ghc']:
   if pathlib.Path(name).is_dir():
    code,_,_=cmd(['sudo','rm','-rf','--',name],timeout=90);report['cleanup'].append({'sdk_path':name,'exit':code})
@@ -24,7 +24,7 @@ report['disk_after']=disk();reasons=[]
 if os.environ.get('RUNNER_ENVIRONMENT')!='github-hosted' or os.environ.get('REPOSITORY_VISIBILITY')!='public':reasons.append('not_standard_public_hosted_context')
 if platform.machine()!='x86_64':reasons.append('not_amd64')
 if report['ram_bytes']<15_000_000_000:reasons.append('insufficient_ram')
-if report['disk_after']['free_bytes']<45*GIB:reasons.append('insufficient_disk_for_conservative_envelope')
+if report['disk_after']['free_bytes']<48*GIB:reasons.append('insufficient_disk_for_conservative_envelope')
 if report['driver']!='docker':reasons.append('default_docker_driver_required_no_privileged_custom_builder')
 if not report['containerd_image_store']:reasons.append('existing_containerd_store_missing_no_daemon_reconfiguration')
 # Tiny static OCI build tests exporter+attestations; it has no executable image code.

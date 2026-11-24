@@ -1,0 +1,10 @@
+{
+  "webpki-roots": "1.0.10",
+  "rustls-webpki": "0.103.16",
+  "rustls": "0.23.46",
+  "ctutils": "0.4.4",
+  "rustix": "1.1.6",
+  "tokio": "1.53.3",
+  "url": "2.5.9",
+  "form_urlencoded": "1.2.3"
+}

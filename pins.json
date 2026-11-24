@@ -1,6 +1,6 @@
 {
   "upstream_commit": "c0f132898d2a2677312d8c72096187b27a3d9a38",
-  "version": "2026.1117.0-owner.b2",
+  "version": "2026.1117.0-owner.b3",
   "platform": "linux/amd64",
   "ubuntu_base_digest": "sha256:9a04f13b3f80ef056361e30868593b1cfd2279fe19e4081cb93a90bf56819d6a",
   "node_source_digest": "sha256:6709bf854652e2d21610e952df82ff9c0b98cc7315acdce75236bbb66bd8aa06",
@@ -21,11 +21,11 @@
     "pnpm-workspace.yaml": "d44465949a3bba9bdde71c09b9faa89c9abf813b7313a64d5990bb6edd4ce994",
     "pnpm-lock.yaml": "3eb4998920a88e1d51b41030ee9ebe416b30265e6d3b15b7ffb049457c43aadb",
     "server/package.json": "17704c48600ad418d1684a8f2b4749d75ca9ecc4e2d7446aac8a812d1e921cd1",
-    "packages/paperclip-runner/runner/Cargo.lock": "838ba47fc53c69c0bdeac65440152ad4e469b6b0b3d3e184287f30c25375f136",
+    "packages/paperclip-runner/runner/Cargo.lock": "33df5041c064e0a5393b08c121c254045153d23b3f5c3dc5a2131a5242645307",
     "packages/paperclip-runner/rust-toolchain.toml": "e4c6d27e48d71df0ae66d84f3bc2d5df8cbf5c3cbb3225475a7852d94361a0c5"
   },
-  "patch_sha256": "a36c252a81be5ea42d4128307b4ed64135a514ebc45eb0508463b59808e24f80",
-  "dockerfile_sha256": "2cf1645e6f9e59d2d8efaf9956f287970a9f3992e370c69f65dbb671963492cc",
+  "patch_sha256": "80cb9ef5e6c94f39c2473165e433c91c4f36dedb1af4017b1129b073bd7f2a41",
+  "dockerfile_sha256": "9e541c2d899b61aff562b7d7f36424cfc0c3d90b331c765b62e0a6e018259ff1",
   "dockerignore_sha256": "2c089f19ef1a8302de25cca37ef9fc572c94717ee1c1dd7eb05b05ac4aadd263",
   "regctl": {
     "version": "v0.11.7",
@@ -44,5 +44,8 @@
     "version": "v0.76.2",
     "url": "https://github.com/aquasecurity/trivy/releases/download/v0.76.2/trivy_0.76.2_Linux-64bit.tar.gz",
     "sha256": "bc0fc726e017b8927a62b2d3531d7a84ee01769daf5c99ed866dced54089fdbf"
-  }
+  },
+  "security_review_sha256": "fa8ba7559f35807246de90fe445c0f6f628c3990902923e310fde94eeca1c552",
+  "component_check_sha256": "737488cffe4afe7c61b9c81b6ce10c337a7107b35f7ac276e1aabb28ae8af230",
+  "rust_fixture_sha256": "d327f649c428c7380c36e2132e0abe071ca3f2c59eeaa11560da1043531b0af6"
 }

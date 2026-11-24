@@ -145,6 +145,26 @@ RUN find runner protocol -type f -exec touch -d @0 {} + \
   && touch -d @0 rust-toolchain.toml acpx-profiles.json antigravity-distributions.json \
   && cargo build --release --manifest-path runner/Cargo.toml --locked -p paperclip-runner-core --bin paperclip-runnerd
 
+# Build-only TLS qualification branch; neither test files nor generated keys enter build/production.
+FROM runner-build AS rust-component-check
+COPY .pilot-build/b3_tls_fixture.rs /tmp/b3_tls_fixture.rs
+COPY .pilot-build/rust_qualify.py /tmp/rust_qualify.py
+COPY .pilot-build/b3-rust-versions.json /tmp/b3-rust-versions.json
+RUN cd runner && cargo tree --locked --edges normal,build -p paperclip-runner-core --target x86_64-unknown-linux-gnu > /tmp/b3-rust-tree.txt \
+ && python3 /tmp/rust_qualify.py compile
+RUN --network=none set -eu; mkdir /tmp/b3-certs; cd /tmp/b3-certs; \
+ openssl req -x509 -newkey rsa:2048 -nodes -keyout root.key -out root.pem -subj '/CN=B3 Synthetic Test Root' -days 2; \
+ openssl req -newkey rsa:2048 -nodes -keyout leaf.key -out leaf.csr -subj '/CN=fixture.invalid'; \
+ printf '%s\n' 'subjectAltName=DNS:fixture.invalid' 'basicConstraints=critical,CA:FALSE' 'keyUsage=critical,digitalSignature,keyEncipherment' 'extendedKeyUsage=serverAuth' > extensions.cnf; \
+ openssl x509 -req -in leaf.csr -CA root.pem -CAkey root.key -CAcreateserial -out leaf.pem -days 2 -extfile extensions.cnf; \
+ openssl x509 -in root.pem -outform DER -out root.der; \
+ openssl x509 -in leaf.pem -outform DER -out leaf.der; \
+ openssl pkcs8 -topk8 -nocrypt -in leaf.key -outform DER -out leaf.key.der; \
+ python3 /tmp/rust_qualify.py; rm -rf /tmp/b3-certs
+FROM scratch AS rust-qualification
+COPY --from=rust-component-check /tmp/b3-rust-results.json /results.json
+COPY --from=rust-component-check /tmp/b3-rust-tree.txt /production-tree.txt
+
 FROM runner-build AS build
 WORKDIR /app
 COPY --from=deps /app /app

@@ -39,7 +39,7 @@ for layer in manifest['layers']:
    names.add(name)
    if member.issym() or member.islnk():links[name]={'target':member.linkname,'hard':member.islnk()};continue
    if not member.isfile():continue
-   uncompressed+=member.size;f=tf.extractfile(member);store=(name.endswith('/package.json') and member.size<4*1024*1024) or name=='var/lib/dpkg/status' or (name.endswith('/versions.json') and 'sharp-libvips' in name) or name.endswith('/build-info.json');data=bytearray() if store else None;tail=b'';flagtypes=set();match_hashes={};file_hash=hashlib.sha256();first=b''
+   uncompressed+=member.size;f=tf.extractfile(member);store=(name.endswith('/package.json') and member.size<4*1024*1024) or name=='var/lib/dpkg/status' or name=='app/packages/paperclip-runner/runner/Cargo.lock' or (name.endswith('/versions.json') and 'sharp-libvips' in name) or name.endswith('/build-info.json');data=bytearray() if store else None;tail=b'';flagtypes=set();match_hashes={};file_hash=hashlib.sha256();first=b''
    while True:
     chunk=f.read(65536)
     if not chunk:break
@@ -109,5 +109,30 @@ if metadata.exists():scanproof['database_metadata']=json.loads(metadata.read_tex
 db=toolroot/'cache/db/trivy.db'
 if db.exists():scanproof['database_sha256']=hashlib.file_digest(db.open('rb'),'sha256').hexdigest()
 (output/'trivy-scan-proof.json').write_text(json.dumps(scanproof,indent=2))
-result={'composition_pass':True,'attestation_binding_pass':attestation_binding_pass,'scanner_exit':scan.returncode,'security_review_pass':False,'secrets_scan_pass':not flags,'secret_flags':flags,'local_oci_bytes':sum(p.stat().st_size for p in root.rglob('*') if p.is_file()),'runtime_layers_compressed_bytes':sum(x['size'] for x in manifest['layers']),'sum_layer_payload_bytes_not_deduplicated':uncompressed,'runtime_manifest_digest':desc['digest'],'root_index_sha256':hashlib.sha256((root/'index.json').read_bytes()).hexdigest(),'actual_runtime_versions':actual,'openssh':pins['openssh_client'],'platform':'linux/amd64','sbom_present':True,'provenance_present':True,'identity_signature_verified':False,'application_started':False,'remaining_risks':['OS/native CVE triage beyond selected OpenSSH backport pending','Full runtime advisory reachability and configuration guards pending','No Linux dynamic application/native smoke test; no application launched']}
-(output/'image-verification.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2));sys.exit(0 if not flags and attestation_binding_pass and scan.returncode==0 else 3)
+# Review is bound to exact inputs/findings; new findings or changed fixtures fail closed.
+assert hashlib.sha256(pathlib.Path('security-review.json').read_bytes()).hexdigest()==pins['security_review_sha256'];review=json.loads(pathlib.Path('security-review.json').read_text())
+assert review['upstream_commit']==pins['upstream_commit'] and review['patch_sha256']==pins['patch_sha256'] and review['source_hashes']==pins['source_hashes'] and review['dockerfile_sha256']==pins['dockerfile_sha256']
+reviewed=[];unknown=[]
+for flag in flags:
+ match=next((x for x in review['reviewed_public_fixture_exceptions'] if all(x.get(k)==flag.get(k) for k in ['path','kind','file_sha256','match_sha256'])),None)
+ if match:reviewed.append(flag|{'review_reason':match['reason'],'origin':match['origin']})
+ else:unknown.append(flag)
+flags=unknown
+normalized_npm={k:sorted(v,key=lambda x:(x.get('url',''),x.get('vulnerable_versions',''))) for k,v in advisories.items()}
+npm_review_matches=hashlib.sha256(json.dumps(normalized_npm,sort_keys=True,separators=(',',':')).encode()).hexdigest()==review['reviewed_npm_response_sha256']
+trivy_keys=[]
+scan_report=output/'trivy-high-critical.json'
+if scan.returncode==0 and scan_report.exists():
+ scan_data=json.loads(scan_report.read_text());assert scan_data.get('Metadata',{}).get('OS',{}).get('Family')=='ubuntu','OS coverage missing'
+ for row in scan_data.get('Results',[]):
+  for v in row.get('Vulnerabilities') or []:
+   trivy_keys.append([row['Type'],row['Target'] if row['Type']!='ubuntu' else 'ubuntu24.04-runtime',v['VulnerabilityID'],v['PkgName'],v['InstalledVersion'],v['Severity']])
+trivy_review_matches=bool(scan.returncode==0 and scan_report.exists() and sorted(trivy_keys)==review['reviewed_trivy_finding_keys'])
+from audit_rust import audit_lock
+cargo=texts.get('app/packages/paperclip-runner/runner/Cargo.lock');assert cargo,'Runtime Cargo lock absent'
+assert hashlib.sha256(cargo.encode()).hexdigest()==pins['source_hashes']['packages/paperclip-runner/runner/Cargo.lock']
+rust=audit_lock(cargo);(output/'rust-audit.json').write_text(json.dumps(rust,indent=2));rust_review_matches=sorted([[x['name'],x['version'],x['id']] for x in rust['findings']])==review['reviewed_rust_finding_keys']
+static_review_pass=bool(review.get('admission_allowed') is True and rust_review_matches and npm_review_matches and trivy_review_matches and attestation_binding_pass and not flags and scan.returncode==0)
+(output/'security-review-result.json').write_text(json.dumps({'scope':review['scope'],'rust_review_matches':rust_review_matches,'rust_findings':review['rust_review'],'admission_allowed':review.get('admission_allowed') is True,'blocking_findings':review.get('blocking_findings',[]),'npm_review_matches':npm_review_matches,'trivy_review_matches':trivy_review_matches,'npm_reviewed_findings':len(review['npm_findings']),'trivy_reviewed_records':len(review['trivy_findings']),'reviewed_public_fixture_matches':reviewed,'unknown_secret_matches':unknown,'static_review_pass':static_review_pass,'runtime_conditions':review['required_runtime_conditions'],'coverage_limits':review['coverage_limits'],'application_started':False},indent=2))
+result={'composition_pass':True,'static_review_pass':static_review_pass,'reviewed_public_fixture_matches':len(reviewed),'attestation_binding_pass':attestation_binding_pass,'scanner_exit':scan.returncode,'security_review_pass':False,'secrets_scan_pass':not flags,'secret_flags':flags,'local_oci_bytes':sum(p.stat().st_size for p in root.rglob('*') if p.is_file()),'runtime_layers_compressed_bytes':sum(x['size'] for x in manifest['layers']),'sum_layer_payload_bytes_not_deduplicated':uncompressed,'runtime_manifest_digest':desc['digest'],'root_index_sha256':hashlib.sha256((root/'index.json').read_bytes()).hexdigest(),'actual_runtime_versions':actual,'openssh':pins['openssh_client'],'platform':'linux/amd64','sbom_present':True,'provenance_present':True,'identity_signature_verified':False,'application_started':False,'remaining_risks':['Conditional inactive-tool/provider findings retained in security-review.json; runtime guards need separate qualification','Sharp embedded C/C++ coverage is supplier-inventory plus selected advisories, not exhaustive binary CVE detection','No Linux dynamic application/native smoke test; no application launched']}
+(output/'image-verification.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2));sys.exit(0 if static_review_pass else 3)
