@@ -39,19 +39,20 @@ for layer in manifest['layers']:
    names.add(name)
    if member.issym() or member.islnk():links[name]={'target':member.linkname,'hard':member.islnk()};continue
    if not member.isfile():continue
-   uncompressed+=member.size;f=tf.extractfile(member);store=(name.endswith('/package.json') and member.size<4*1024*1024) or name=='var/lib/dpkg/status' or (name.endswith('/versions.json') and 'sharp-libvips' in name) or name.endswith('/build-info.json');data=bytearray() if store else None;tail=b'';flagtypes=set();first=b''
+   uncompressed+=member.size;f=tf.extractfile(member);store=(name.endswith('/package.json') and member.size<4*1024*1024) or name=='var/lib/dpkg/status' or (name.endswith('/versions.json') and 'sharp-libvips' in name) or name.endswith('/build-info.json');data=bytearray() if store else None;tail=b'';flagtypes=set();match_hashes={};file_hash=hashlib.sha256();first=b''
    while True:
     chunk=f.read(65536)
     if not chunk:break
+    file_hash.update(chunk)
     if not first:first=chunk[:64]
     if data is not None:data.extend(chunk)
     for kind,pattern in patterns:
      for m in pattern.finditer(tail+chunk):
       value=m.group()
       if kind!='private_key' and len(set(value.split(b'_',1)[-1]))<4:continue
-      flagtypes.add(kind)
+      flagtypes.add(kind);match_hashes.setdefault(kind,set()).add(hashlib.sha256(value).hexdigest())
     tail=(tail+chunk)[-8192:]
-   for kind in flagtypes:flags.append({'path':name,'kind':kind,'action':'BLOCK_PUBLICATION_PENDING_REVIEW','note':'May be a public synthetic fixture; no automatic blanket exception'})
+   for kind in flagtypes:flags.append({'path':name,'kind':kind,'file_sha256':file_hash.hexdigest(),'match_sha256':sorted(match_hashes[kind]),'action':'BLOCK_PUBLICATION_PENDING_REVIEW','note':'May be a public synthetic fixture; no automatic blanket exception'})
    if first.startswith(b'\x7fELF'):headers[name]={'elf_type':int.from_bytes(first[16:18],'little'),'machine':int.from_bytes(first[18:20],'little')}
    if data is not None:
     if name.endswith('/package.json'):
@@ -98,10 +99,15 @@ with tarfile.open(archive,'r:gz') as tf:
  member=tf.getmember('trivy');assert member.isfile() and member.size<200*1024*1024
  with tf.extractfile(member) as src,(toolroot/'trivy').open('wb') as dst:shutil.copyfileobj(src,dst)
 tool=toolroot/'trivy';tool.chmod(0o700);archive.unlink();env=os.environ.copy();env['TRIVY_DISABLE_TELEMETRY']='true'
-scan=subprocess.run([str(tool),'image','--input',str(root)+'@'+desc['digest'],'--cache-dir',str(toolroot/'cache'),'--scanners','vuln','--severity','HIGH,CRITICAL','--format','json','--output',str(output/'trivy-high-critical.json'),'--timeout','15m','--parallel','2','--skip-java-db-update','--no-progress'],env=env,timeout=960)
+# The exporter wraps a platform index in the layout root. Trivy matches @digest
+# only at that outer level. A data-only view selects exactly the verified runtime.
+scanroot=output.parent/'runtime-scan-oci';scanroot.mkdir(exist_ok=True);(scanroot/'blobs').symlink_to(root/'blobs',target_is_directory=True);(scanroot/'oci-layout').write_text(json.dumps({'imageLayoutVersion':'1.0.0'}));(scanroot/'index.json').write_text(json.dumps({'schemaVersion':2,'manifests':[desc]}))
+scan=subprocess.run([str(tool),'image','--input',str(scanroot),'--cache-dir',str(toolroot/'cache'),'--scanners','vuln','--severity','HIGH,CRITICAL','--format','json','--output',str(output/'trivy-high-critical.json'),'--timeout','15m','--parallel','2','--skip-java-db-update','--no-progress'],env=env,timeout=960)
 scanproof={'version':scanner['version'],'binary_archive_sha256':scanner['sha256'],'exit':scan.returncode}
 metadata=toolroot/'cache/db/metadata.json'
 if metadata.exists():scanproof['database_metadata']=json.loads(metadata.read_text())
+db=toolroot/'cache/db/trivy.db'
+if db.exists():scanproof['database_sha256']=hashlib.file_digest(db.open('rb'),'sha256').hexdigest()
 (output/'trivy-scan-proof.json').write_text(json.dumps(scanproof,indent=2))
 result={'composition_pass':True,'attestation_binding_pass':attestation_binding_pass,'scanner_exit':scan.returncode,'security_review_pass':False,'secrets_scan_pass':not flags,'secret_flags':flags,'local_oci_bytes':sum(p.stat().st_size for p in root.rglob('*') if p.is_file()),'runtime_layers_compressed_bytes':sum(x['size'] for x in manifest['layers']),'sum_layer_payload_bytes_not_deduplicated':uncompressed,'runtime_manifest_digest':desc['digest'],'root_index_sha256':hashlib.sha256((root/'index.json').read_bytes()).hexdigest(),'actual_runtime_versions':actual,'openssh':pins['openssh_client'],'platform':'linux/amd64','sbom_present':True,'provenance_present':True,'identity_signature_verified':False,'application_started':False,'remaining_risks':['OS/native CVE triage beyond selected OpenSSH backport pending','Full runtime advisory reachability and configuration guards pending','No Linux dynamic application/native smoke test; no application launched']}
 (output/'image-verification.json').write_text(json.dumps(result,indent=2));print(json.dumps(result,indent=2));sys.exit(0 if not flags and attestation_binding_pass and scan.returncode==0 else 3)

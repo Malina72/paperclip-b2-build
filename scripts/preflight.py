@@ -30,7 +30,7 @@ if not report['containerd_image_store']:reasons.append('existing_containerd_stor
 # Tiny static OCI build tests exporter+attestations; it has no executable image code.
 if not reasons:
  probe=R/'probe';probe.mkdir();(probe/'Dockerfile').write_text('FROM scratch\nCOPY probe.txt /probe.txt\n');(probe/'probe.txt').write_text('synthetic OCI attestation preflight\n')
- args=['docker','buildx','build','--builder',os.environ.get('PILOT_BUILDER','default'),'--platform','linux/amd64','--provenance=mode=max','--sbom=generator='+pins['sbom_generator'],'--output',f'type=oci,dest={R}/probe-oci,tar=false',str(probe)]
+ args=['docker','buildx','build','--builder',os.environ.get('PILOT_BUILDER','default'),'--platform','linux/amd64','--tag','paperclip-b2-attestation-probe:local','--provenance=mode=max','--sbom=generator='+pins['sbom_generator'],'--output',f'type=oci,dest={R}/probe-oci,tar=false',str(probe)]
  code,out,err=cmd(args,timeout=180);report['attestation_probe_exit']=code
  if code!=0:reasons.append('bounded_oci_attestation_probe_failed');report['probe_error_class']='Exporter/SBOM/provenance capability failure; no security fallback'
  else:
@@ -41,6 +41,7 @@ if not reasons:
    except (ValueError,UnicodeDecodeError):continue
    if isinstance(x,dict) and x.get('predicateType'):predicates.append(x['predicateType']);subjects.append({'predicateType':x['predicateType'],'subject':x.get('subject')})
   report['attestation_predicates']=predicates;report['attestation_subjects']=subjects
+  if not all(x['subject'] and all(y.get('digest',{}).get('sha256') for y in x['subject']) for x in subjects):reasons.append('empty_attestation_subject_before_full_build')
   if not any('spdx' in x for x in predicates) or not any('slsa' in x for x in predicates):reasons.append('attestations_not_present_in_export')
 report['eligible']=not reasons;report['stop_reasons']=reasons;(R/'preflight.json').write_text(json.dumps(report,indent=2));print(json.dumps(report,indent=2))
 with open(os.environ['GITHUB_OUTPUT'],'a') as f:f.write('eligible='+str(report['eligible']).lower()+'\n')
