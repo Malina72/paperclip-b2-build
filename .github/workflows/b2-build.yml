@@ -16,7 +16,6 @@ jobs:
     env:
       REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
       PILOT_BUILDER: paperclip-b2
-      DOCKER_CONFIG: ${{ runner.temp }}/paperclip-docker-config
       GIT_TERMINAL_PROMPT: '0'
     steps:
       - name: Fetch exact public recipe commit without persisted credentials
@@ -24,6 +23,7 @@ jobs:
         run: |
           set -euo pipefail
           test "$REPOSITORY_VISIBILITY" = public
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/paperclip-docker-config" >> "$GITHUB_ENV"
           git init .
           git remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
           git fetch --depth=1 origin "$GITHUB_SHA"
