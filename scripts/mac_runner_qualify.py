@@ -1,5 +1,5 @@
 """Qualify a B3-only native artifact; never launches a provider or agent."""
-import pathlib,subprocess,sys,json,hashlib,os,re,tomllib,platform,time
+import pathlib,subprocess,sys,json,hashlib,os,re,tomllib,platform,time,shutil
 from audit_rust import audit_lock
 repo=pathlib.Path.cwd();source=repo/'source';runner=source/'packages/paperclip-runner/runner';out=repo/'native-evidence';out.mkdir(exist_ok=True)
 def run(a,cwd=runner):return subprocess.run(a,cwd=cwd,text=True,capture_output=True,check=True,timeout=180).stdout
@@ -13,7 +13,10 @@ deps=runner/'target/release/deps';a=['rustc','--edition=2021','--test',str(repo/
 for name in ['rustls','webpki_roots']:
  libs=list(deps.glob('lib'+name+'-*.rlib'));assert len(libs)==1,(name,len(libs));a+=['--extern',name+'='+str(libs[0])]
 run(a+['-o',str(out/'tls-tests')]);certs=out/'certs';certs.mkdir()
-openssl='/opt/homebrew/opt/openssl@3/bin/openssl';assert pathlib.Path(openssl).is_file()
+openssl='/opt/homebrew/opt/openssl@3/bin/openssl'
+if not pathlib.Path(openssl).is_file():openssl=shutil.which('openssl')
+assert openssl and pathlib.Path(openssl).is_file()
+(out/'certificate-generator.json').write_text(json.dumps({'version':run([openssl,'version']).strip(),'sha256':hashlib.sha256(pathlib.Path(openssl).read_bytes()).hexdigest(),'scope':'Preinstalled CI synthetic-certificate generator only; not included in native runtime'},indent=2))
 for args in [['req','-x509','-newkey','rsa:2048','-nodes','-keyout','root.key','-out','root.pem','-subj','/CN=B3 Synthetic Test Root','-days','2'],['req','-newkey','rsa:2048','-nodes','-keyout','leaf.key','-out','leaf.csr','-subj','/CN=fixture.invalid']]:run([openssl]+args,certs)
 (certs/'extensions.cnf').write_text('subjectAltName=DNS:fixture.invalid\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\n')
 run([openssl,'x509','-req','-in','leaf.csr','-CA','root.pem','-CAkey','root.key','-CAcreateserial','-out','leaf.pem','-days','2','-extfile','extensions.cnf'],certs)
