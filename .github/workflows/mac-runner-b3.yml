@@ -1,0 +1,92 @@
+name: B3 Mac ARM64 Runner qualification
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: b3-mac-native-one-job
+  cancel-in-progress: false
+jobs:
+  qualify:
+    runs-on: macos-15
+    timeout-minutes: 75
+    permissions:
+      contents: write
+    env:
+      CARGO_BUILD_JOBS: "1"
+      CARGO_INCREMENTAL: "0"
+    steps:
+      - name: Fetch exact public recipe without stored credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "$GITHUB_SHA"
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Resource admission and exact B3 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,platform,subprocess,json,shutil,urllib.request,hashlib,tarfile
+          assert platform.system()=='Darwin' and platform.machine()=='arm64'
+          ram=int(subprocess.check_output(['sysctl','-n','hw.memsize']));free=shutil.disk_usage('.').free
+          proof={'arch':platform.machine(),'ram_bytes':ram,'free_disk_bytes':free,'macos':platform.mac_ver()[0],'runner_image':__import__('os').environ.get('ImageVersion'),'extra_spend_usd':0}
+          print(json.dumps(proof));assert ram>=6*2**30 and free>=8*2**30,'Insufficient standard free runner resources; stop without fallback'
+          pathlib.Path('native-preflight.json').write_text(json.dumps(proof,indent=2))
+          pins=json.loads(pathlib.Path('pins.json').read_text())
+          with urllib.request.urlopen(pins['archive_url'],timeout=90) as f:b=f.read()
+          assert hashlib.sha256(b).hexdigest()==pins['archive_sha256'];pathlib.Path('source.tar.gz').write_bytes(b)
+          pathlib.Path('source').mkdir()
+          with tarfile.open('source.tar.gz') as t:
+           top=t.getmembers()[0].name.split('/')[0]
+           for m in t.getmembers():
+            parts=pathlib.PurePosixPath(m.name).parts;assert parts[0]==top and '..' not in parts and not m.name.startswith('/')
+           t.extractall('unpacked',filter='data')
+          pathlib.Path('source').rmdir();pathlib.Path('unpacked',top).rename('source')
+          assert hashlib.sha256(pathlib.Path('patches/B3.patch').read_bytes()).hexdigest()==pins['patch_sha256']
+          subprocess.run(['patch','--batch','--fuzz=0','-p1','-i',str(pathlib.Path('patches/B3.patch').resolve())],cwd='source',check=True)
+          for name,h in pins['source_hashes'].items():assert hashlib.sha256(pathlib.Path('source',name).read_bytes()).hexdigest()==h,name
+          assert hashlib.sha256(pathlib.Path('scripts/b3_tls_fixture.rs').read_bytes()).hexdigest()==pins['rust_fixture_sha256']
+          PY
+      - name: Compile only native Runner with pinned Rust and lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.97.1 --profile minimal
+          cd source/packages/paperclip-runner/runner
+          rustc --version
+          /usr/bin/time -l cargo build --release --locked -p paperclip-runner-core --bin paperclip-runnerd 2> ../../../../native-compile.log
+      - name: Native TLS, dependency, SBOM and artifact gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/mac_runner_qualify.py
+      - name: Publish qualified native artifact only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib,json,hashlib
+          p=pathlib.Path('native-publication');d=json.loads((p/'verification.json').read_text());assert d['pass'] and d['tls_tests']==6
+          assert hashlib.sha256((p/'paperclip-runnerd-darwin-arm64').read_bytes()).hexdigest()==d['sha256']
+          assert {x.name for x in p.iterdir()}=={'paperclip-runnerd-darwin-arm64','verification.json','SHA256SUMS','sbom.spdx.json','provenance.json','build-metadata.json','native-libraries.txt','production-tree.txt','tls-tests.txt'}
+          PY
+          tag="b3-mac-arm64-${GITHUB_SHA:0:12}"
+          gh release create "$tag" native-publication/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "B3 qualified Mac ARM64 Runner candidate" --notes "Candidate artifact only. Not approval for a deployed executor. See verification, source-lock SBOM, active target tree and digest-bound unsigned provenance."
+      - name: Report evidence without paid Actions artifact storage
+        if: always()
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import pathlib,json
+          for name in ['native-preflight.json','native-evidence/verification.json']:
+           p=pathlib.Path(name)
+           if p.exists():print(name,p.read_text())
+          p=pathlib.Path('native-compile.log')
+          if p.exists():print('COMPILE_LOG_TAIL', '\n'.join(p.read_text(errors='replace').splitlines()[-45:]))
+          PY
