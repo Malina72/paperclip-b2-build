@@ -1,6 +1,7 @@
 """Qualify a B3-only native artifact; never launches a provider or agent."""
 import pathlib,subprocess,sys,json,hashlib,os,re,tomllib,platform,time,shutil
 from audit_rust import audit_lock
+from mac_binary_audit import macho_libraries,system_libraries,otool_libraries
 repo=pathlib.Path.cwd();source=repo/'source';runner=source/'packages/paperclip-runner/runner';out=repo/'native-evidence';out.mkdir(exist_ok=True)
 def run(a,cwd=runner):return subprocess.run(a,cwd=cwd,text=True,capture_output=True,check=True,timeout=180).stdout
 lock=(runner/'Cargo.lock').read_text();pins=json.loads((repo/'pins.json').read_text());versions=json.loads((repo/'scripts/b3-rust-versions.json').read_text())
@@ -29,11 +30,14 @@ expected={tuple(x) for x in policy['reviewed_rust_finding_keys']}
 actual={(x['name'],x['version'],x['id']) for x in audit['findings']};assert actual==expected,'New or changed Rust finding requires review'
 (out/'rust-audit.json').write_text(json.dumps(audit,indent=2))
 binary=runner/'target/release/paperclip-runnerd';data=binary.read_bytes();sha=hashlib.sha256(data).hexdigest()
+(out/'binary-inventory.json').write_text(json.dumps({'sha256':sha,'bytes':len(data),'qualification_complete':False},indent=2))
 assert not re.search(rb'-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----\s+[A-Za-z0-9+/=\r\n]{80,}',data),'Unknown private-key marker in artifact'
 assert not re.search(rb'gh[pousr]_[A-Za-z0-9]{30,}|sk-proj-[A-Za-z0-9_-]{48,}',data),'Unknown secret-like marker'
 metadata=json.loads(run([str(binary),'--build-metadata']));(out/'build-metadata.json').write_text(json.dumps(metadata,indent=2))
 native=run(['/usr/bin/otool','-L',str(binary)]);(out/'native-libraries.txt').write_text(native.replace(str(runner),'<source>/runner'))
-assert '/opt/homebrew/' not in native and '/Users/' not in native,'Unexpected non-system dylib'
+libraries=otool_libraries(native,binary)
+assert sorted(libraries)==sorted(system_libraries(macho_libraries(data))),'Mach-O and otool inventories differ'
+(out/'native-libraries.txt').write_text('\n'.join(libraries)+'\n')
 packages=tomllib.loads(lock)['package'];spdx=[]
 registry=pathlib.Path(os.environ.get('CARGO_HOME',str(pathlib.Path.home()/'.cargo')))/'registry/src'
 for i,x in enumerate(packages):

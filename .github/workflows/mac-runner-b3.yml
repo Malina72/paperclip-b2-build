@@ -58,7 +58,17 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal
           cd source/packages/paperclip-runner/runner
           rustc --version
+          python3 -m unittest discover -s ../../../../tests -p 'mac*test.py' -v
           /usr/bin/time -l cargo build --release --locked -p paperclip-runner-core --bin paperclip-runnerd 2> ../../../../native-compile.log
+      - name: Preserve compiled artifact as private draft diagnostic only
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/preserve_native.py
+          tag="b3-mac-quarantine-${GITHUB_SHA:0:12}"
+          gh release create "$tag" native-quarantine/* --draft --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "UNQUALIFIED Mac Runner - do not execute" --notes "Diagnostic retention only. Not a qualified candidate. Digest and source/run linkage in inventory. No credentials or generated test keys included."
       - name: Native TLS, dependency, SBOM and artifact gates
         shell: bash
         run: |
@@ -84,7 +94,7 @@ jobs:
         run: |
           python3 - <<'PY'
           import pathlib,json
-          for name in ['native-preflight.json','native-evidence/verification.json']:
+          for name in ['native-preflight.json','native-evidence/verification.json','native-evidence/binary-inventory.json','native-evidence/tls-tests.txt','native-evidence/build-metadata.json','native-evidence/native-libraries.txt']:
            p=pathlib.Path(name)
            if p.exists():print(name,p.read_text())
           p=pathlib.Path('native-compile.log')
